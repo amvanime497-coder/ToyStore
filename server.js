@@ -3,6 +3,7 @@ import express from 'express'
 import cors from 'cors'
 import { createClient } from '@supabase/supabase-js'
 import dotenv from 'dotenv'
+// bcrypt removed: storing plaintext passwords per developer request (dev only)
 import { Pool } from 'pg'
 
 dotenv.config()
@@ -107,6 +108,8 @@ app.post('/signup', async (req, res) => {
   const { username, email, password, role } = req.body || {}
   if (!username || !email || !password) return res.status(400).json({ error: 'Lengkapi username, email, dan password' })
 
+  // NOTE: storing plaintext password per developer request (development only)
+
   try {
     // If we have a Supabase service role key, create the auth user server-side
     // and also create a profile row in public.users. This bypasses RLS safely
@@ -135,7 +138,7 @@ app.post('/signup', async (req, res) => {
           // Insert a profile row into `profiles` linked by `auth_id` (UUID).
           const { data: profData, error: profErr } = await supabase
             .from('profiles')
-            .insert([{ auth_id: createdUser.id, username, email, role }])
+            .insert([{ auth_id: createdUser.id, username, email, role, password }])
             .select()
             .single()
           if (profErr) console.warn('profile insert warning', profErr)
@@ -226,20 +229,39 @@ app.post('/signup', async (req, res) => {
 app.post('/login', async (req, res) => {
   const { usernameOrEmail, password } = req.body || {}
   if (!usernameOrEmail || !password) return res.status(400).json({ error: 'Isi username/email dan password' })
-
   try {
-    const { data, error } = await supabase
+    // Resolve username -> email (support login by username or email)
+    const { data: profiles, error: selErr } = await supabase
       .from('profiles')
       .select('*')
       .or(`username.eq.${usernameOrEmail},email.eq.${usernameOrEmail}`)
+      .limit(1)
 
-    if (error) throw error
-    if (!data || !data.length) return res.status(400).json({ error: 'Akun tidak ditemukan. Silakan buat akun terlebih dahulu.' })
+    if (selErr) throw selErr
+    if (!profiles || !profiles.length) return res.status(400).json({ error: 'Akun tidak ditemukan. Silakan buat akun terlebih dahulu.' })
 
-    const user = data[0]
-    if (user.password !== password) return res.status(401).json({ error: 'Username atau password salah' })
+    const profile = profiles[0]
+    const email = profile.email
 
-    res.json({ user: { id: user.id, username: user.username, email: user.email, role: user.role } })
+    // Try Supabase Auth first
+    const authRes = await supabase.auth.signInWithPassword({ email, password })
+    const authData = authRes?.data
+
+    if (authData?.user) {
+      return res.json({ user: { id: profile.id, username: profile.username, email: profile.email, role: profile.role }, session: authData.session ?? null })
+    }
+
+    // If Supabase Auth didn't authenticate (e.g. profile-only user), compare plaintext password.
+    // WARNING: plaintext comparison is INSECURE and for development/testing only.
+    if (profile.password) {
+      try {
+        if (password === profile.password) return res.json({ user: { id: profile.id, username: profile.username, email: profile.email, role: profile.role } })
+      } catch (e) {
+        console.error('Password compare error', e)
+      }
+    }
+
+    return res.status(401).json({ error: 'Username atau password salah' })
   } catch (err) {
     res.status(500).json({ error: err.message || String(err) })
   }

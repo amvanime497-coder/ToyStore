@@ -106,7 +106,7 @@ function AuthBox({ onLogin }) {
   return (
     <div className="auth-box">
       <h2 className="brand">Toy Store</h2>
-      <p className="brand-desc">Mainan unik untuk semua usia — kreatif, aman, dan menyenangkan.</p>
+      <p className="brand-desc">Mainan unik untuk semua usia — dirancang untuk merangsang kreativitas, menumbuhkan rasa ingin tahu, dan menghadirkan kebahagiaan belajar lewat bermain, sambil menjaga standar keamanan dan kualitas tertinggi.</p>
 
       <div className="auth-card">
         <div className="mode-toggle">
@@ -186,7 +186,7 @@ function App() {
         <div className="collage">
           <div className="collage-card">
             <h1 className="collage-title">Toy Store</h1>
-            <p className="collage-sub">Koleksi mainan terbaik untuk kreatifitas anak.</p>
+            <p className="collage-sub">Pilihan mainan kurasi untuk menumbuhkan kreativitas, motorik, dan imajinasi anak di setiap tahap—aman, inspiratif, dan penuh kegembiraan.</p>
           </div>
         </div>
       </div>

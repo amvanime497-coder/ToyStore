@@ -1,32 +1,56 @@
+/* eslint-env node */
 import dotenv from 'dotenv'
 import { createClient } from '@supabase/supabase-js'
 
-// Muat variabel dari .env
+// Muat variabel dari .env (jika ada)
 dotenv.config()
 
-// Ambil variabel dari env. Sesuaikan nama jika Anda pakai nama lain.
-const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_KEY
+// Helper: ambil env var dan hapus tanda kutip di awal/akhir bila ada
+function getEnv(name) {
+  const v = globalThis.process?.env?.[name]
+  if (!v && name.startsWith('VITE_')) {
+    // sometimes people set without VITE_ prefix for local dev
+    const alt = name.replace(/^VITE_/, '')
+    return getEnv(alt)
+  }
+  if (typeof v === 'string') return v.replace(/^"|"$/g, '')
+  return v
+}
+
+const SUPABASE_URL = getEnv('SUPABASE_URL') || getEnv('VITE_SUPABASE_URL')
+const SUPABASE_ANON_KEY = getEnv('SUPABASE_ANON_KEY') || getEnv('VITE_SUPABASE_ANON_KEY') || getEnv('SUPABASE_KEY')
 
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-  console.error('ERROR: Supabase URL atau key tidak ditemukan di environment. Pastikan Anda punya file .env dengan SUPABASE_URL dan SUPABASE_ANON_KEY (atau SUPABASE_KEY).')
-  process.exit(1)
+  console.error('\nERROR: Supabase URL atau key tidak ditemukan di environment.')
+  console.error('  - Pastikan file `.env` ada di root, atau environment variables sudah di-set.')
+  console.error('  - Contoh .env:\n    SUPABASE_URL=https://...\n    SUPABASE_ANON_KEY=sb_publishable_...')
+  console.error('\nDebug: (menampilkan variabel yang terdeteksi tanpa mencetak secret)')
+  console.error('  cwd:', globalThis.process?.cwd?.())
+  const list = ['SUPABASE_URL', 'VITE_SUPABASE_URL', 'SUPABASE_ANON_KEY', 'VITE_SUPABASE_ANON_KEY', 'SUPABASE_KEY']
+  list.forEach(k => {
+    const val = globalThis.process?.env?.[k]
+    if (val) {
+      console.error(`  ${k}: SET (len=${String(val).length})`)
+    } else {
+      console.error(`  ${k}: not set`)
+    }
+  })
+  // Do not exit abruptly; create a dummy client that throws helpful errors when used.
 }
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
-
-async function getCountries() {
-  try {
-    const { data, error } = await supabase.from('countries').select('*')
-    if (error) {
-      console.error('Error fetching countries:', error)
-      return
+let supabase
+if (SUPABASE_URL && SUPABASE_ANON_KEY) {
+  supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+} else {
+  supabase = {
+    from() {
+      throw new Error('Supabase client not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY in environment.')
     }
-    console.log('Countries:', data)
-  } catch (err) {
-    console.error('Unexpected error:', err)
   }
 }
+
+// (optional) function to fetch countries if you have that table
+// async function getCountries() { ... }
 
 async function getProfiles() {
   try {
