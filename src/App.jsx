@@ -41,7 +41,7 @@ function AuthBox({ onLogin }) {
 
       // Use server-side signup endpoint which will insert into the
       // `profiles` table (and create auth user if server has service role).
-      const API = import.meta.env.VITE_API_URL || 'http://localhost:3001'
+      const API = import.meta.env.VITE_API_URL || ''
       try {
         const resp = await fetch(`${API}/signup`, {
           method: 'POST',
@@ -73,7 +73,7 @@ function AuthBox({ onLogin }) {
     try {
       setLoading(true)
       // Use backend /login which checks `profiles` table for username/email + password
-      const API = import.meta.env.VITE_API_URL || 'http://localhost:3001'
+      const API = import.meta.env.VITE_API_URL || ''
       const usernameOrEmail = username || email
       try {
         const resp = await fetch(`${API}/login`, {

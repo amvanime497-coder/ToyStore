@@ -69,3 +69,46 @@ Notes and safety:
 - The server contains a small safety measure that disables TLS verification when connecting to Supabase poolers for local development. This is insecure and should be disabled in production.
 
 If you want, I can help you create a `.env` locally (without committing it) or walk through enabling `USE_PG` and testing `GET /dbtest`.
+
+## Deployment & Environment Variables (summary)
+
+If you deploy the frontend (Vite) separately from the backend, or on a platform
+like Vercel, make sure environment variables are configured correctly before
+building. Common issues (and fixes) are listed below.
+
+- Public (client) environment variables:
+	- Prefix with `VITE_` (e.g. `VITE_API_URL`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`).
+	- These values are embedded into the built JavaScript and are visible to
+		anyone who inspects the bundle. Only put non-secret values here.
+
+- Server-only (secret) environment variables:
+	- Do NOT prefix with `VITE_` (e.g. `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`).
+	- These must be set as server environment variables in your hosting provider
+		(Vercel Project Settings → Environment Variables) and must NOT be exposed
+		to the client.
+
+- Common deployment failure: "Failed to fetch" on login/register
+	- Cause: frontend was built with no `VITE_API_URL`, so it fell back to
+		`http://localhost:3001`. When opened from another device the browser
+		cannot reach localhost on the developer machine.
+	- Fix: Set `VITE_API_URL` in the hosting environment (or change the client
+		to use relative `/api` paths and deploy the server as serverless functions).
+	- After changing environment variables in Vercel, redeploy the project so the
+		new values are embedded into the build.
+
+- Security checklist before deploy:
+	- Remove any `VITE_` prefixed variables that contain secrets (service role key,
+		database URLs). If such secrets were exposed, rotate them immediately.
+	- Keep `SUPABASE_SERVICE_ROLE_KEY` and `DATABASE_URL` only in server-side envs.
+
+- Options to deploy on Vercel:
+	1) Deploy frontend static site and a separate backend service (set `VITE_API_URL`).
+ 2) Convert `server.js` into Vercel Serverless Functions inside `api/` so the
+		frontend can use relative paths (e.g. `fetch('/login')`). I can help convert
+		`server.js` routes into `api/*.js` endpoints.
+ 3) Use Supabase client directly from the frontend (set `VITE_SUPABASE_URL` and
+		`VITE_SUPABASE_ANON_KEY`) for auth operations — no custom backend required,
+		but you can't perform privileged admin operations from the client.
+
+If you want, I can add a short checklist or example commands to this README to
+help with redeploying on Vercel.
