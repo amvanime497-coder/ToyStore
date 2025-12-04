@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import './index.css'
+import { supabase } from './supabaseClient'
 
 function AuthBox({ onLogin }) {
   const [mode, setMode] = useState('login') // or 'signup'
@@ -39,25 +40,57 @@ function AuthBox({ onLogin }) {
         return
       }
 
-      // Use server-side signup endpoint which will insert into the
-      // `profiles` table (and create auth user if server has service role).
-      const API = import.meta.env.VITE_API_URL || ''
+      // Use Supabase client for signup. This uses the anon key and the
+      // public Supabase API to create an auth user. After signup we sign
+      // in and then create a profile row in the `profiles` table.
       try {
-        const resp = await fetch(`${API}/signup`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: rawEmail, username: rawUsername, role, password: rawPassword })
+        // Create auth user
+        const { data: signData, error: signErr } = await supabase.auth.signUp({
+          email: rawEmail,
+          password: rawPassword,
+          options: { data: { username: rawUsername, role } }
         })
-        const payload = await resp.json()
-        if (!resp.ok) throw new Error(payload?.error || JSON.stringify(payload))
-        setSuccess('Akun berhasil dibuat. Silakan masuk.')
+        if (signErr) throw signErr
+
+        // Some Supabase configs don't auto-sign-in after signUp. Try sign-in now.
+        const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
+          email: rawEmail,
+          password: rawPassword
+        })
+        if (signInErr) {
+          // Not fatal — user may need to confirm email. Show success message.
+          setSuccess('Akun dibuat. Silakan konfirmasi email jika diperlukan, lalu masuk.')
+          setMode('login')
+          setUsername(rawEmail || rawUsername)
+          setPassword('')
+          return
+        }
+
+        const sessionUser = signInData?.user || signData?.user
+        const authId = sessionUser?.id
+
+        // Insert profile row. This will succeed if your RLS policies allow
+        // authenticated users to insert their own profile (auth.uid() = auth_id).
+        try {
+          const { data: prof, error: profErr } = await supabase
+            .from('profiles')
+            .insert([{ auth_id: authId, username: rawUsername, email: rawEmail, role, password: rawPassword }])
+            .select()
+            .single()
+          if (profErr) console.warn('profile insert warning', profErr)
+          else console.log('profile created', prof)
+        } catch (profEx) {
+          console.warn('profile insert exception', profEx)
+        }
+
+        setSuccess('Akun berhasil dibuat dan masuk.')
         setMode('login')
         setUsername(rawEmail || rawUsername)
         setPassword('')
         return
       } catch (srvErr) {
-        console.error('Server-side signup failed:', srvErr)
-        setError(srvErr.message || String(srvErr))
+        console.error('Supabase signup failed:', srvErr)
+        setError(srvErr?.message || String(srvErr))
       }
     } catch (err) {
       console.error('signup error', err)
@@ -72,24 +105,55 @@ function AuthBox({ onLogin }) {
     setError('')
     try {
       setLoading(true)
-      // Use backend /login which checks `profiles` table for username/email + password
-      const API = import.meta.env.VITE_API_URL || ''
+      // Use Supabase auth to sign in
       const usernameOrEmail = username || email
       try {
-        const resp = await fetch(`${API}/login`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ usernameOrEmail, password })
+        // If the user entered a username instead of email, resolve email via profiles table
+        let loginEmail = usernameOrEmail
+        if (username && !email) {
+          try {
+            const { data: p, error: pErr } = await supabase
+              .from('profiles')
+              .select('email')
+              .eq('username', usernameOrEmail)
+              .limit(1)
+              .maybeSingle()
+            if (pErr) console.warn('profile lookup warn', pErr)
+            if (p?.email) loginEmail = p.email
+          } catch (lookupEx) {
+            console.warn('profile lookup ex', lookupEx)
+          }
+        }
+
+        const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
+          email: loginEmail,
+          password
         })
-        const payload = await resp.json()
-        if (!resp.ok) throw new Error(payload?.error || JSON.stringify(payload))
-        const user = payload.user
-        if (!user) throw new Error('Login gagal: respons server tidak berisi user')
-        onLogin(user)
-        return
+        if (signInErr) throw signInErr
+
+        const user = signInData?.user
+        if (!user) throw new Error('Login gagal: respons auth tidak berisi user')
+
+        // Fetch profile row for the authenticated user
+        try {
+          const { data: profile, error: profErr } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('auth_id', user.id)
+            .limit(1)
+            .maybeSingle()
+          if (profErr) console.warn('profile fetch warning', profErr)
+          const publicUser = profile || { id: user.id, email: user.email }
+          onLogin(publicUser)
+          return
+        } catch (pfEx) {
+          console.warn('profile fetch ex', pfEx)
+          onLogin({ id: user.id, email: user.email })
+          return
+        }
       } catch (loginErr) {
-        console.error('server login failed', loginErr)
-        setError(loginErr.message || String(loginErr))
+        console.error('supabase login failed', loginErr)
+        setError(loginErr?.message || String(loginErr))
       }
     } catch (err) {
       console.error('login error', err)
